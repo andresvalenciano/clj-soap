@@ -7,7 +7,11 @@
                  [org.clojure/core.incubator "0.1.2"]
                  [org.apache.axis2/axis2-adb "1.6.2"]
                  [org.apache.axis2/axis2-transport-http "1.6.2"]
-                 [org.apache.axis2/axis2-transport-local "1.6.2"]]
+                 [org.apache.axis2/axis2-transport-local "1.6.2"]
+                 [org.clojure/tools.logging "0.2.6"]
+                 [log4j "1.2.15" :exclusions [javax.mail/mail
+                                              javax.jms/jms
+                                              com.sun.jdmk/jmxtools
+                                              com.sun.jmx/jmxri]]]
   :source-paths ["src" "test"]
   :aot [clj-soap.test.core])
-
