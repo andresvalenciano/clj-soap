@@ -1,5 +1,6 @@
 (ns clj-soap.core
-  (:require [clojure.core.incubator :refer [-?>]]))
+  (:require [clojure.core.incubator :refer [-?>]])
+  (:use [clojure.tools.logging :only (info error debug)]))
 
 ;;; Defining SOAP Server
 
@@ -7,37 +8,37 @@
 
 (defn gen-class-method-decls [method-defs]
   (flatten1
-    (letfn [(gen-decl [method-name arglist body]
-              [method-name
-               (vec (for [arg arglist] (or (:tag (meta arg)) String)))
-               (or (:tag (meta arglist)) 'void)])]
-      (for [method-def method-defs]
-        (cond
-          (vector? (second method-def))
-          (list (let [[method-name arglist & body] method-def]
-                  (gen-decl method-name arglist body)))
-          (seq? (second method-def))
-          (let [[method-name & deflist] method-def]
-            (for [[arglist & body] deflist]
-              (gen-decl method-name arglist body))))))))
+   (letfn [(gen-decl [method-name arglist body]
+             [method-name
+              (vec (for [arg arglist] (or (:tag (meta arg)) String)))
+              (or (:tag (meta arglist)) 'void)])]
+     (for [method-def method-defs]
+       (cond
+        (vector? (second method-def))
+        (list (let [[method-name arglist & body] method-def]
+                (gen-decl method-name arglist body)))
+        (seq? (second method-def))
+        (let [[method-name & deflist] method-def]
+          (for [[arglist & body] deflist]
+            (gen-decl method-name arglist body))))))))
 
 (defn gen-method-defs [prefix method-defs]
   (flatten1
-    (for [method-def method-defs]
-      (cond
-        (vector? (second method-def))
-        (list (let [[method-name arglist & body] method-def]
-                `(defn ~(symbol (str prefix method-name))
-                   ~(vec (cons 'this arglist)) ~@body)))
-        (seq? (second method-def))
-        (let [[method-name & deflist] method-def]
-          (cons
-            `(defmulti ~(symbol (str prefix method-name))
-               (fn [~'this & args#] (vec (map class args#))))
-            (for [[arglist & body] deflist]
-              `(defmethod ~(symbol (str prefix method-name))
-                 ~(vec (map #(:tag (meta %)) arglist))
-                 ~(vec (cons 'this arglist)) ~@body))))))))
+   (for [method-def method-defs]
+     (cond
+      (vector? (second method-def))
+      (list (let [[method-name arglist & body] method-def]
+              `(defn ~(symbol (str prefix method-name))
+                 ~(vec (cons 'this arglist)) ~@body)))
+      (seq? (second method-def))
+      (let [[method-name & deflist] method-def]
+        (cons
+         `(defmulti ~(symbol (str prefix method-name))
+            (fn [~'this & args#] (vec (map class args#))))
+         (for [[arglist & body] deflist]
+           `(defmethod ~(symbol (str prefix method-name))
+              ~(vec (map #(:tag (meta %)) arglist))
+              ~(vec (cons 'this arglist)) ~@body))))))))
 
 
 (defmacro defservice
@@ -47,9 +48,9 @@
   (let [prefix (str (gensym "prefix"))]
     `(do
        (gen-class
-         :name ~class-name
-         :prefix ~prefix
-         :methods ~(vec (gen-class-method-decls method-defs)))
+        :name ~class-name
+        :prefix ~prefix
+        :methods ~(vec (gen-class-method-decls method-defs)))
        ~@(gen-method-defs prefix method-defs))))
 
 (defn serve
@@ -108,19 +109,19 @@
 (defn make-client [url]
   (doto (org.apache.axis2.client.ServiceClient. nil (java.net.URL. url) nil nil)
     (.setOptions
-      (doto (org.apache.axis2.client.Options.)
-        (.setTo (org.apache.axis2.addressing.EndpointReference. url))))))
+     (doto (org.apache.axis2.client.Options.)
+       (.setTo (org.apache.axis2.addressing.EndpointReference. url))))))
 
 (defn make-request [op & args]
   (let [factory (org.apache.axiom.om.OMAbstractFactory/getOMFactory)
         request (.createOMElement
-                  factory (javax.xml.namespace.QName.
-                            (axis-op-namespace op) (axis-op-name op)))
+                 factory (javax.xml.namespace.QName.
+                          (axis-op-namespace op) (axis-op-name op)))
         op-args (axis-op-args op)]
     (doseq [[argval argtype] (map list args op-args)]
       (.addChild request
                  (doto (.createOMElement
-                         factory (javax.xml.namespace.QName. (axis-op-namespace op) (:name argtype)))
+                        factory (javax.xml.namespace.QName. (axis-op-namespace op) (:name argtype)))
                    (.setText (obj->soap-str argval (:type argtype))))))
     request))
 
@@ -131,17 +132,20 @@
       (str retelem))))
 
 (defn client-call [client op & args]
-  (if (isa? (class op) org.apache.axis2.description.OutOnlyAxisOperation)
-    (.sendRobust client (.getName op) (apply make-request op args))
-    (get-result
-      op (.sendReceive client (.getName op) (apply make-request op args)))))
+  (let [request (apply make-request op args)]
+    (if (isa? (class op) org.apache.axis2.description.OutOnlyAxisOperation)
+      (.sendRobust client (.getName op request))
+      (do
+        (debug "client-call with following request:" request)
+        (get-result
+         op (.sendReceive client (.getName op) request))))))
 
 (defn client-proxy [url]
   (let [client (make-client url)]
     (->> (for [op (axis-service-operations (.getAxisService client))]
-               [(keyword (axis-op-name op))
-                (fn soap-call [& args] (apply client-call client op args))])
-      (into {}))))
+           [(keyword (axis-op-name op))
+            (fn soap-call [& args] (apply client-call client op args))])
+         (into {}))))
 
 (defn client-fn
   "Make SOAP client function, which is called as: (x :someMethod arg1 arg2 ...)"
@@ -149,4 +153,3 @@
   (let [px (client-proxy url)]
     (fn [opname & args]
       (apply (px opname) args))))
-
